@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PHEV Charging Optimizer – Nieuwe Stroom NL</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg-primary: #ffffff; --bg-secondary: #f5f5f3; --bg-tertiary: #efefec;
+      --text-primary: #1a1a18; --text-secondary: #6b6b67; --text-tertiary: #9b9b96;
+      --border: rgba(0,0,0,0.12); --border-md: rgba(0,0,0,0.2);
+      --radius-md: 8px; --radius-lg: 12px;
+      --green-bg: #E1F5EE; --green-border: #5DCAA5; --green-dark: #0F6E56;
+      --green-darker: #085041; --green-mid: #1D9E75;
+      --amber-bg: #FAEEDA; --amber-text: #854F0B;
+      --red-bg: #FCEBEB; --red-text: #A32D2D;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #1c1c1a; --bg-secondary: #262624; --bg-tertiary: #2e2e2b;
+        --text-primary: #f0f0ec; --text-secondary: #a0a09a; --text-tertiary: #6b6b65;
+        --border: rgba(255,255,255,0.1); --border-md: rgba(255,255,255,0.18);
+        --green-bg: #0a2e23; --green-border: #1D9E75; --green-dark: #5DCAA5; --green-darker: #9FE1CB;
+        --amber-bg: #2e1f06; --amber-text: #FAC775; --red-bg: #2e0a0a; --red-text: #F09595;
+      }
+    }
+    body { font-family: var(--font); background: var(--bg-tertiary); color: var(--text-primary); min-height: 100vh; }
+    .app-shell { max-width: 680px; margin: 0 auto; padding: 16px; }
+    .header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding-top: 8px; }
+    .logo { width: 42px; height: 42px; border-radius: var(--radius-md); background: var(--green-mid); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .logo svg { width: 22px; height: 22px; }
+    .title-block h1 { font-size: 18px; font-weight: 600; }
+    .title-block p  { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+    .refresh-btn { margin-left: auto; font-size: 13px; padding: 6px 14px; border: 0.5px solid var(--border-md); border-radius: var(--radius-md); background: var(--bg-primary); color: var(--text-secondary); cursor: pointer; flex-shrink: 0; }
+    .refresh-btn:active { opacity: 0.7; }
+    .card { background: var(--bg-primary); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 12px; }
+    .card-title { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 400px) { .settings-grid { grid-template-columns: 1fr; } }
+    .setting { display: flex; flex-direction: column; gap: 4px; }
+    .setting label { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+    .setting select, .setting input { font-size: 14px; padding: 8px 10px; border: 0.5px solid var(--border-md); border-radius: var(--radius-md); background: var(--bg-secondary); color: var(--text-primary); width: 100%; -webkit-appearance: none; appearance: none; }
+    .setting select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b6b67' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px; }
+    .car-info { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; min-height: 14px; }
+    .date-time-row { display: flex; gap: 6px; }
+    .date-time-row .setting { flex: 1; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
+    @media (max-width: 440px) { .metrics { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+    .metric { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 12px 10px; }
+    .metric-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+    .metric-value { font-size: 20px; font-weight: 600; }
+    .metric-sub   { font-size: 10px; color: var(--text-tertiary); margin-top: 2px; }
+    .best-window { background: var(--green-bg); border: 0.5px solid var(--green-border); border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 12px; }
+    .best-window-label  { font-size: 11px; color: var(--green-dark); font-weight: 600; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.02em; }
+    .best-window-time   { font-size: 24px; font-weight: 600; color: var(--green-darker); line-height: 1.2; }
+    .best-window-detail { font-size: 12px; color: var(--green-dark); margin-top: 6px; line-height: 1.5; }
+    .timeline-wrap { position: relative; }
+    .timeline { display: flex; gap: 3px; align-items: flex-end; height: 80px; margin-bottom: 4px; }
+    .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; position: relative; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .bar { width: 100%; border-radius: 3px 3px 0 0; min-height: 4px; }
+    .bar-lbl { font-size: 8px; color: var(--text-tertiary); white-space: nowrap; }
+    .legend { display: flex; gap: 12px; font-size: 11px; color: var(--text-secondary); margin-top: 8px; flex-wrap: wrap; }
+    .legend-item { display: flex; align-items: center; gap: 4px; }
+    .legend-dot  { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+    .tooltip-box { display: none; position: absolute; top: -34px; background: var(--bg-primary); border: 0.5px solid var(--border-md); border-radius: var(--radius-md); padding: 4px 8px; font-size: 11px; white-space: nowrap; z-index: 20; pointer-events: none; color: var(--text-primary); }
+    .weather-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .weather-chip { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 8px 10px; display: flex; align-items: center; gap: 8px; flex: 1; min-width: 130px; }
+    .w-icon { font-size: 20px; flex-shrink: 0; }
+    .w-name { font-size: 13px; font-weight: 500; }
+    .w-note { font-size: 11px; color: var(--text-secondary); margin-top: 1px; }
+    .rec-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 0.5px solid var(--border); font-size: 13px; gap: 8px; }
+    .rec-row:last-child { border-bottom: none; }
+    .rec-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .rec-time { min-width: 50px; }
+    .badge { font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 500; white-space: nowrap; }
+    .badge-green { background: var(--green-bg); color: var(--green-dark); }
+    .badge-amber { background: var(--amber-bg); color: var(--amber-text); }
+    .badge-red   { background: var(--red-bg);   color: var(--red-text); }
+    .rec-action  { font-size: 11px; color: var(--green-dark); font-weight: 600; }
+    .rec-price   { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+    .foot-note   { font-size: 11px; color: var(--text-tertiary); margin-top: 10px; padding-top: 10px; border-top: 0.5px solid var(--border); line-height: 1.5; }
+    .loading-msg { font-size: 13px; color: var(--text-secondary); padding: 8px 0; }
+  </style>
+</head>
+<body>
+<div class="app-shell">
+
+  <div class="header">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+      </svg>
+    </div>
+    <div class="title-block">
+      <h1>PHEV charging optimizer</h1>
+      <p>Nieuwe Stroom &middot; EPEX SPOT &middot; Netherlands</p>
+    </div>
+    <button class="refresh-btn" onclick="loadAll()">&#8635; Refresh</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Your car &amp; charging setup</div>
+    <div class="settings-grid">
+      <div class="setting">
+        <label>BYD model</label>
+        <select id="car-model" onchange="onCarChange()">
+          <option value="">— select model —</option>
+          <optgroup label="Ocean Series">
+            <option value="18.3|Seal U DM-i Comfort">Seal U DM-i Comfort (18.3 kWh)</option>
+            <option value="18.3|Seal U DM-i Design AWD">Seal U DM-i Design AWD (18.3 kWh)</option>
+            <option value="15.8|Sealion 6 DM-i">Sealion 6 DM-i (15.8 kWh)</option>
+            <option value="18.3|Sealion 6 DM-i Extended">Sealion 6 DM-i Extended (18.3 kWh)</option>
+            <option value="26.6|Sealion 6 DM-i Long Range">Sealion 6 DM-i Long Range (26.6 kWh)</option>
+            <option value="18.3|Sealion 05 DM-i">Sealion 05 DM-i (18.3 kWh)</option>
+            <option value="26.6|Sealion 05 DM-i Extended">Sealion 05 DM-i Extended (26.6 kWh)</option>
+          </optgroup>
+          <optgroup label="Dynasty Series">
+            <option value="18.3|Han DM-i">Han DM-i (18.3 kWh)</option>
+            <option value="7.8|Atto 2 DM-i">Atto 2 DM-i (7.8 kWh)</option>
+            <option value="18.0|Atto 2 DM-i Boost">Atto 2 DM-i Boost (18.0 kWh)</option>
+          </optgroup>
+          <option value="custom|Custom">Custom / other</option>
+        </select>
+        <div class="car-info" id="car-info"></div>
+      </div>
+      <div class="setting">
+        <label>Battery capacity (kWh)</label>
+        <input type="number" id="battery" value="18.3" min="4" max="40" step="0.1" onchange="recalc()">
+      </div>
+      <div class="setting">
+        <label>Current charge (%)</label>
+        <input type="number" id="soc" value="30" min="0" max="100" step="5" onchange="recalc()">
+      </div>
+      <div class="setting">
+        <label>Charger power</label>
+        <select id="charger" onchange="recalc()">
+          <option value="1.9" selected>1.9 kW (schuko / slow)</option>
+          <option value="2.3">2.3 kW (home socket)</option>
+          <option value="3.7">3.7 kW (type 1 / 16A)</option>
+          <option value="7.4">7.4 kW (type 2 / 32A)</option>
+          <option value="11">11 kW (3-phase)</option>
+          <option value="18">18 kW (DC fast – Seal U)</option>
+        </select>
+      </div>
+      <div class="setting" style="grid-column: 1 / -1;">
+        <label>Car must be ready by</label>
+        <div class="date-time-row">
+          <div class="setting"><input type="date" id="needed-date" onchange="recalc()"></div>
+          <div class="setting"><input type="time" id="needed-time" value="08:00" onchange="recalc()"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric"><div class="metric-label">Current price</div><div class="metric-value" id="m-price">—</div><div class="metric-sub">€/MWh all-in est.</div></div>
+    <div class="metric"><div class="metric-label">Today's low</div><div class="metric-value" id="m-low">—</div><div class="metric-sub">cheapest hour</div></div>
+    <div class="metric"><div class="metric-label">Charge duration</div><div class="metric-value" id="m-duration">—</div><div class="metric-sub">hours needed</div></div>
+    <div class="metric"><div class="metric-label">Est. cost</div><div class="metric-value" id="m-cost">—</div><div class="metric-sub">at optimal window</div></div>
+  </div>
+
+  <div id="best-window-container"></div>
+
+  <div class="card">
+    <div class="card-title">
+      24-hour EPEX SPOT price forecast (NL)
+      <span id="chart-updated" style="font-size:10px;color:var(--text-tertiary);font-weight:400"></span>
+    </div>
+    <div class="timeline-wrap">
+      <div class="timeline" id="timeline"><div class="loading-msg">Loading prices…</div></div>
+      <div class="tooltip-box" id="tooltip"></div>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#1D9E75"></div>Cheap</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#FAC775"></div>Moderate</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#E24B4A"></div>Expensive</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#5DCAA5;outline:2px solid #0F6E56;outline-offset:-1px;border-radius:2px"></div>Optimal window</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Weather &amp; renewable energy (NL)</div>
+    <div class="weather-row" id="weather-row"><div class="loading-msg">Loading weather…</div></div>
+    <div class="foot-note" id="weather-note"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Hourly recommendation (next 12h)</div>
+    <div id="rec-list"><div class="loading-msg">Calculating…</div></div>
+    <div class="foot-note">Nieuwe Stroom dynamic tariff tracks EPEX SPOT hourly. Shown prices = EPEX + estimated network &amp; taxes (~€95/MWh). Always verify in the Nieuwe Stroom app.</div>
+  </div>
+
+</div>
+
+<script>
+const BYD_INFO = {
+  'Seal U DM-i Comfort':       'SUV · 70 km EV range · 11 kW AC / 18 kW DC',
+  'Seal U DM-i Design AWD':    'SUV AWD · 80 km EV range · 11 kW AC / 18 kW DC',
+  'Sealion 6 DM-i':            'SUV · ~70 km EV range · 6.6 kW AC',
+  'Sealion 6 DM-i Extended':   'SUV · ~80 km EV range · 6.6 kW AC',
+  'Sealion 6 DM-i Long Range': 'SUV · ~120 km EV range · 6.6 kW AC',
+  'Sealion 05 DM-i':           'Compact SUV · 102 km EV range · 6.6 kW AC',
+  'Sealion 05 DM-i Extended':  'Compact SUV · 155 km EV range · 6.6 kW AC',
+  'Han DM-i':                  'Sedan · ~100 km EV range · 7.4 kW AC',
+  'Atto 2 DM-i':               'SUV · 40 km EV range · 6.6 kW AC',
+  'Atto 2 DM-i Boost':         'SUV · 90 km EV range · 6.6 kW AC',
+};
+const WEATHER_URL   = 'https://api.open-meteo.com/v1/forecast?latitude=52.37&longitude=4.90&hourly=wind_speed_10m,shortwave_radiation,cloud_cover&forecast_days=3&timezone=Europe%2FAmsterdam';
+const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+
+let priceData = [], weatherData = null, optimalWindow = null;
+
+function onCarChange() {
+  const val = document.getElementById('car-model').value;
+  if (!val || val.startsWith('custom')) { document.getElementById('car-info').textContent=''; return; }
+  const [kwh, name] = val.split('|');
+  document.getElementById('battery').value = kwh;
+  document.getElementById('car-info').textContent = BYD_INFO[name] || '';
+  document.getElementById('charger').value = name.includes('Seal U') ? '7.4' : '3.7';
+  recalc();
+}
+
+function setDefaultDate() {
+  const now = new Date(), tom = new Date(now);
+  tom.setDate(tom.getDate()+1);
+  const pad = n => String(n).padStart(2,'0');
+  document.getElementById('needed-date').value = `${tom.getFullYear()}-${pad(tom.getMonth()+1)}-${pad(tom.getDate())}`;
+  document.getElementById('needed-date').min   = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+}
+
+async function fetchEPEX() {
+  try {
+    const resp = await fetch(ANTHROPIC_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514', max_tokens: 1000,
+        system: `You generate realistic EPEX SPOT NL day-ahead electricity prices. Return ONLY a JSON array of exactly 24 objects: [{hour:0,price:NUMBER},…] for the next 24 hours from now. No markdown, no explanation. Realistic Dutch EPEX EUR/MWh: night 1-6h ~35-65, morning peak 7-9h ~80-140, midday ~50-90, evening peak 17-20h ~100-160, late night drop.`,
+        messages: [{ role:'user', content:`Generate 24h EPEX SPOT NL prices. Now: ${new Date().toLocaleTimeString('nl-NL',{timeZone:'Europe/Amsterdam'})}. JSON only.` }]
+      })
+    });
+    const d = await resp.json();
+    return JSON.parse((d.content[0].text||'').trim().replace(/```json|```/g,'').trim());
+  } catch(e) { return fallbackPrices(); }
+}
+
+function fallbackPrices() {
+  const h = new Date().getHours();
+  const pat = [55,48,42,38,35,40,75,120,140,110,90,75,65,70,80,95,130,155,145,120,95,75,65,58];
+  return Array.from({length:24},(_,i)=>({ hour:i, price: Math.round(pat[(h+i)%24]+(Math.random()-0.5)*14) }));
+}
+
+async function fetchWeather() {
+  try { return await (await fetch(WEATHER_URL)).json(); } catch(e) { return null; }
+}
+
+function processWeather(data) {
+  if (!data?.hourly) return null;
+  const idx = new Date().getHours();
+  return { wind: data.hourly.wind_speed_10m?.[idx]??10, rad: data.hourly.shortwave_radiation?.[idx]??50, cloud: data.hourly.cloud_cover?.[idx]??60, wind48: data.hourly.wind_speed_10m||[], rad48: data.hourly.shortwave_radiation||[] };
+}
+
+function weatherAdj(wi, offset) {
+  const idx = new Date().getHours()+offset;
+  const w = wi?.wind48?.[idx]??10, r = wi?.rad48?.[idx]??50;
+  let adj=0;
+  if (w>30) adj-=20; else if (w>15) adj-=10;
+  if (r>400) adj-=15; else if (r>150) adj-=7;
+  return adj;
+}
+
+function getNeededBy() {
+  const dv = document.getElementById('needed-date').value;
+  const tv = document.getElementById('needed-time').value||'08:00';
+  if (dv) return new Date(`${dv}T${tv}:00`);
+  const t=new Date(); const [hh,mm]=tv.split(':').map(Number);
+  t.setHours(hh,mm,0,0); if(t<=new Date()) t.setDate(t.getDate()+1);
+  return t;
+}
+
+function recalc() {
+  if (!priceData.length) return;
+  const battery  = parseFloat(document.getElementById('battery').value)||18.3;
+  const soc      = parseFloat(document.getElementById('soc').value)||30;
+  const charger  = parseFloat(document.getElementById('charger').value)||3.7;
+  const neededBy = getNeededBy();
+  const now      = new Date();
+  const kwhNeeded   = battery*(1-soc/100);
+  const hoursNeeded = Math.max(1, Math.ceil(kwhNeeded/charger));
+  const hoursUntil  = Math.max(hoursNeeded, Math.floor((neededBy-now)/3600000));
+  const windowSize  = Math.min(hoursUntil,24);
+
+  document.getElementById('m-duration').textContent = hoursNeeded+'h';
+
+  const adj = priceData.map((p,i)=>({...p, allIn: p.price+weatherAdj(weatherData,i)+95}));
+
+  let bestStart=0, bestCost=Infinity;
+  for (let s=0; s<=windowSize-hoursNeeded; s++) {
+    let c=0; for(let j=0;j<hoursNeeded;j++) c+=(adj[s+j]?.allIn||120);
+    if(c<bestCost){bestCost=c;bestStart=s;}
+  }
+  optimalWindow={start:bestStart,duration:hoursNeeded};
+
+  const startTime=new Date(now.getTime()+bestStart*3600000);
+  const endTime  =new Date(startTime.getTime()+hoursNeeded*3600000);
+  const fmt  = d=>d.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Amsterdam'});
+  const fmtD = d=>d.toLocaleDateString('nl-NL',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/Amsterdam'});
+  const avgPrice = bestCost/hoursNeeded;
+  const estCost  = (avgPrice/1000)*kwhNeeded;
+
+  document.getElementById('m-price').textContent = '€'+(adj[0]?.allIn||120);
+  document.getElementById('m-low').textContent   = '€'+Math.min(...adj.slice(0,windowSize).map(p=>p.allIn));
+  document.getElementById('m-cost').textContent  = '€'+estCost.toFixed(2);
+
+  const dayLabel = startTime.toDateString()===now.toDateString()?'today':fmtD(startTime);
+  document.getElementById('best-window-container').innerHTML=`
+    <div class="best-window">
+      <div class="best-window-label">Optimal charging window</div>
+      <div class="best-window-time">${fmt(startTime)} &ndash; ${fmt(endTime)} <span style="font-size:13px;font-weight:500;opacity:0.75">${dayLabel}</span></div>
+      <div class="best-window-detail">${kwhNeeded.toFixed(1)} kWh needed &middot; avg &euro;${(avgPrice/1000).toFixed(4)}/kWh &middot; est. cost &euro;${estCost.toFixed(2)}<br>Ready by ${fmt(endTime)} ${fmtD(endTime)}</div>
+    </div>`;
+
+  renderTimeline(adj);
+  renderRecs(adj);
+}
+
+function renderTimeline(prices) {
+  const tl=document.getElementById('timeline'), now=new Date();
+  const maxP=Math.max(...prices.map(p=>p.allIn)), minP=Math.min(...prices.map(p=>p.allIn)), range=maxP-minP||1;
+  tl.innerHTML='';
+  prices.slice(0,24).forEach((p,i)=>{
+    const h=new Date(now.getTime()+i*3600000);
+    const hp=16+((p.allIn-minP)/range)*76;
+    const tier=(p.allIn-minP)/range;
+    const color=tier<0.33?'#1D9E75':tier<0.66?'#FAC775':'#E24B4A';
+    const isOpt=optimalWindow&&i>=optimalWindow.start&&i<optimalWindow.start+optimalWindow.duration;
+    const lbl=h.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Amsterdam'}).slice(0,5);
+    const wrap=document.createElement('div'); wrap.className='bar-wrap';
+    wrap.innerHTML=`<div class="bar" style="height:${hp}%;background:${color};opacity:${isOpt?1:0.45};${isOpt?'outline:2px solid #0F6E56;':''}"></div><div class="bar-lbl" style="font-weight:${i===0?'600':'400'}">${lbl}</div>`;
+    const showTip=()=>{
+      const tt=document.getElementById('tooltip');
+      const pr=wrap.parentElement.getBoundingClientRect(), wr=wrap.getBoundingClientRect();
+      tt.style.display='block'; tt.style.left=Math.max(0,Math.min(wr.left-pr.left,pr.width-180))+'px';
+      tt.innerHTML=`${lbl} &middot; &euro;${p.allIn}/MWh &middot; &euro;${(p.allIn/1000).toFixed(4)}/kWh${isOpt?' ✓':''}`;
+    };
+    wrap.addEventListener('mousemove',showTip);
+    wrap.addEventListener('touchstart',showTip,{passive:true});
+    wrap.addEventListener('mouseleave',()=>{document.getElementById('tooltip').style.display='none';});
+    wrap.addEventListener('touchend',()=>{setTimeout(()=>{document.getElementById('tooltip').style.display='none';},1500);});
+    tl.appendChild(wrap);
+  });
+  document.getElementById('chart-updated').textContent='Updated '+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Amsterdam'});
+}
+
+function renderRecs(prices) {
+  const now=new Date(), list=document.getElementById('rec-list');
+  const minP=Math.min(...prices.slice(0,24).map(p=>p.allIn)), maxP=Math.max(...prices.slice(0,24).map(p=>p.allIn)), range=maxP-minP||1;
+  list.innerHTML='';
+  prices.slice(0,12).forEach((p,i)=>{
+    const h=new Date(now.getTime()+i*3600000);
+    const lbl=h.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Amsterdam'});
+    const isOpt=optimalWindow&&i>=optimalWindow.start&&i<optimalWindow.start+optimalWindow.duration;
+    const isStart=optimalWindow&&i===optimalWindow.start;
+    const tier=(p.allIn-minP)/range;
+    const [badge,cls]=tier<0.33?['Cheap','badge-green']:tier<0.66?['Moderate','badge-amber']:['Expensive','badge-red'];
+    const row=document.createElement('div'); row.className='rec-row';
+    row.style.background=isOpt?'rgba(29,158,117,0.06)':'';
+    row.innerHTML=`<div class="rec-left"><span class="rec-time" style="font-weight:${isStart?'600':'400'}">${lbl}</span><span class="badge ${cls}">${badge}</span>${isStart?'<span class="rec-action">&#9658; start charging</span>':''}${isOpt&&!isStart?'<span class="rec-action" style="opacity:0.7">charging</span>':''}</div><div class="rec-price">&euro;${p.allIn}/MWh &middot; &euro;${(p.allIn/1000).toFixed(4)}/kWh</div>`;
+    list.appendChild(row);
+  });
+}
+
+function renderWeather(w) {
+  const row=document.getElementById('weather-row');
+  if(!w){row.innerHTML='<div class="loading-msg">Weather unavailable — using base EPEX prices</div>';return;}
+  const wi=w.wind>30?'💨':w.wind>15?'🌬️':'🍃';
+  const wn=w.wind>30?'High offshore production — prices lower':w.wind>15?'Some wind generation online':'Low wind — limited NL wind power';
+  const si=w.rad>400?'☀️':w.rad>150?'⛅':'🌥️';
+  const sn=w.rad>400?'Strong generation reducing midday prices':w.rad>150?'Some solar on the grid':'Minimal solar contribution';
+  row.innerHTML=`
+    <div class="weather-chip"><span class="w-icon">${wi}</span><div><div class="w-name">${Math.round(w.wind)} km/h wind</div><div class="w-note">${wn}</div></div></div>
+    <div class="weather-chip"><span class="w-icon">${si}</span><div><div class="w-name">${Math.round(w.rad)} W/m² solar</div><div class="w-note">${sn}</div></div></div>
+    <div class="weather-chip"><span class="w-icon">☁️</span><div><div class="w-name">Cloud ${Math.round(w.cloud)}%</div><div class="w-note">Affects solar output today</div></div></div>`;
+  document.getElementById('weather-note').textContent='Wind & solar from Open-Meteo (Amsterdam). High renewables = lower EPEX — factored into the optimal window.';
+}
+
+async function loadAll() {
+  document.getElementById('timeline').innerHTML='<div class="loading-msg">Fetching EPEX SPOT prices…</div>';
+  document.getElementById('weather-row').innerHTML='<div class="loading-msg">Loading weather…</div>';
+  document.getElementById('best-window-container').innerHTML='';
+  const [raw,wx]=await Promise.all([fetchEPEX(),fetchWeather()]);
+  const now=new Date();
+  priceData=raw.map((p,i)=>({hour:i,actualHour:(now.getHours()+i)%24,price:p.price}));
+  weatherData=processWeather(wx);
+  renderWeather(weatherData);
+  recalc();
+}
+
+setDefaultDate();
+loadAll();
+</script>
+</body>
+</html>

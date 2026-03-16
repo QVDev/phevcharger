@@ -145,6 +145,14 @@
         </select>
       </div>
       <div class="setting" style="grid-column: 1 / -1;">
+        <label>Start planning from</label>
+        <div class="date-time-row">
+          <div class="setting"><input type="date" id="start-date" onchange="onStartChange()"></div>
+          <div class="setting"><input type="time" id="start-time" onchange="onStartChange()"></div>
+        </div>
+        <div id="start-error" style="font-size:11px;color:var(--red-text);margin-top:3px;min-height:14px;"></div>
+      </div>
+      <div class="setting" style="grid-column: 1 / -1;">
         <label>Car must be ready by</label>
         <div class="date-time-row">
           <div class="setting"><input type="date" id="needed-date" onchange="recalc()"></div>
@@ -226,6 +234,13 @@ function setDefaultDate() {
   const now = new Date(), tom = new Date(now);
   tom.setDate(tom.getDate()+1);
   const pad = n => String(n).padStart(2,'0');
+
+  // Start planning from: default to right now
+  document.getElementById('start-date').value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  document.getElementById('start-time').value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  document.getElementById('start-date').min   = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+
+  // Ready by: default to tomorrow 08:00
   document.getElementById('needed-date').value = `${tom.getFullYear()}-${pad(tom.getMonth()+1)}-${pad(tom.getDate())}`;
   document.getElementById('needed-date').min   = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
 }
@@ -236,9 +251,9 @@ async function fetchEPEX() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514', max_tokens: 1000,
-        system: `You generate realistic EPEX SPOT NL day-ahead electricity prices. Return ONLY a JSON array of exactly 24 objects: [{hour:0,price:NUMBER},…] for the next 24 hours from now. No markdown, no explanation. Realistic Dutch EPEX EUR/MWh: night 1-6h ~35-65, morning peak 7-9h ~80-140, midday ~50-90, evening peak 17-20h ~100-160, late night drop.`,
-        messages: [{ role:'user', content:`Generate 24h EPEX SPOT NL prices. Now: ${new Date().toLocaleTimeString('nl-NL',{timeZone:'Europe/Amsterdam'})}. JSON only.` }]
+        model: 'claude-sonnet-4-20250514', max_tokens: 2000,
+        system: `You generate realistic EPEX SPOT NL day-ahead electricity prices. Return ONLY a JSON array of exactly 48 objects: [{hour:0,price:NUMBER},…] for the next 48 hours from now. No markdown, no explanation. Realistic Dutch EPEX EUR/MWh: night 1-6h ~35-65, morning peak 7-9h ~80-140, midday ~50-90, evening peak 17-20h ~100-160, late night drop. Repeat the daily pattern for hours 24-47.`,
+        messages: [{ role:'user', content:`Generate 48h EPEX SPOT NL prices. Now: ${new Date().toLocaleTimeString('nl-NL',{timeZone:'Europe/Amsterdam'})}. JSON only.` }]
       })
     });
     const d = await resp.json();
@@ -249,7 +264,7 @@ async function fetchEPEX() {
 function fallbackPrices() {
   const h = new Date().getHours();
   const pat = [55,48,42,38,35,40,75,120,140,110,90,75,65,70,80,95,130,155,145,120,95,75,65,58];
-  return Array.from({length:24},(_,i)=>({ hour:i, price: Math.round(pat[(h+i)%24]+(Math.random()-0.5)*14) }));
+  return Array.from({length:48},(_,i)=>({ hour:i, price: Math.round(pat[(h+i)%24]+(Math.random()-0.5)*14) }));
 }
 
 async function fetchWeather() {
@@ -280,58 +295,132 @@ function getNeededBy() {
   return t;
 }
 
-function recalc() {
-  if (!priceData.length) return;
-  const battery  = parseFloat(document.getElementById('battery').value)||18.3;
-  const soc      = parseFloat(document.getElementById('soc').value)||30;
-  const charger  = parseFloat(document.getElementById('charger').value)||3.7;
-  const neededBy = getNeededBy();
-  const now      = new Date();
-  const kwhNeeded   = battery*(1-soc/100);
-  const hoursNeeded = Math.max(1, Math.ceil(kwhNeeded/charger));
-  const hoursUntil  = Math.max(hoursNeeded, Math.floor((neededBy-now)/3600000));
-  const windowSize  = Math.min(hoursUntil,24);
-
-  document.getElementById('m-duration').textContent = hoursNeeded+'h';
-
-  const adj = priceData.map((p,i)=>({...p, allIn: p.price+weatherAdj(weatherData,i)+95}));
-
-  let bestStart=0, bestCost=Infinity;
-  for (let s=0; s<=windowSize-hoursNeeded; s++) {
-    let c=0; for(let j=0;j<hoursNeeded;j++) c+=(adj[s+j]?.allIn||120);
-    if(c<bestCost){bestCost=c;bestStart=s;}
-  }
-  optimalWindow={start:bestStart,duration:hoursNeeded};
-
-  const startTime=new Date(now.getTime()+bestStart*3600000);
-  const endTime  =new Date(startTime.getTime()+hoursNeeded*3600000);
-  const fmt  = d=>d.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Amsterdam'});
-  const fmtD = d=>d.toLocaleDateString('nl-NL',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/Amsterdam'});
-  const avgPrice = bestCost/hoursNeeded;
-  const estCost  = (avgPrice/1000)*kwhNeeded;
-
-  document.getElementById('m-price').textContent = '€'+(adj[0]?.allIn||120);
-  document.getElementById('m-low').textContent   = '€'+Math.min(...adj.slice(0,windowSize).map(p=>p.allIn));
-  document.getElementById('m-cost').textContent  = '€'+estCost.toFixed(2);
-
-  const dayLabel = startTime.toDateString()===now.toDateString()?'today':fmtD(startTime);
-  document.getElementById('best-window-container').innerHTML=`
-    <div class="best-window">
-      <div class="best-window-label">Optimal charging window</div>
-      <div class="best-window-time">${fmt(startTime)} &ndash; ${fmt(endTime)} <span style="font-size:13px;font-weight:500;opacity:0.75">${dayLabel}</span></div>
-      <div class="best-window-detail">${kwhNeeded.toFixed(1)} kWh needed &middot; avg &euro;${(avgPrice/1000).toFixed(4)}/kWh &middot; est. cost &euro;${estCost.toFixed(2)}<br>Ready by ${fmt(endTime)} ${fmtD(endTime)}</div>
-    </div>`;
-
-  renderTimeline(adj);
-  renderRecs(adj);
+function getStartTime() {
+  const dv = document.getElementById('start-date').value;
+  const tv = document.getElementById('start-time').value;
+  if (dv && tv) return new Date(`${dv}T${tv}:00`);
+  return new Date();
 }
 
-function renderTimeline(prices) {
-  const tl=document.getElementById('timeline'), now=new Date();
+function onStartChange() {
+  const start   = getStartTime();
+  const needed  = getNeededBy();
+  const now     = new Date();
+  const errEl   = document.getElementById('start-error');
+  if (start < now) {
+    errEl.textContent = 'Start time cannot be in the past.';
+    return;
+  }
+  if (start >= needed) {
+    errEl.textContent = 'Start time must be before the ready-by time.';
+    return;
+  }
+  errEl.textContent = '';
+  recalc();
+}
+
+function recalc() {
+  if (!priceData.length) return;
+  const battery   = parseFloat(document.getElementById('battery').value)||18.3;
+  const soc       = parseFloat(document.getElementById('soc').value)||30;
+  const charger   = parseFloat(document.getElementById('charger').value)||3.7;
+  const neededBy  = getNeededBy();
+  const planStart = getStartTime();
+  const realNow   = new Date();
+
+  // Number of whole hours between real now and the planning start
+  const startOffset = Math.max(0, Math.round((planStart - realNow) / 3600000));
+
+  const kwhNeeded    = battery * (1 - soc / 100);
+  const hoursNeeded  = Math.max(1, Math.ceil(kwhNeeded / charger));
+  // How many hours are available between planStart and neededBy
+  const hoursAvail   = Math.max(0, Math.floor((neededBy - planStart) / 3600000));
+
+  document.getElementById('m-duration').textContent = hoursNeeded + 'h';
+
+  // Slice 48h priceData from the offset so index 0 = planStart
+  const adjFull = priceData.map((p,i) => ({...p, allIn: p.price + weatherAdj(weatherData, i) + 95}));
+  const adj = adjFull.slice(startOffset, startOffset + 48);
+  while (adj.length < 48) adj.push({...adj[adj.length-1] || {allIn:120}});
+
+  // --- Not enough time to fully charge ---
+  const partial = hoursAvail < hoursNeeded;
+  const hoursCanCharge = Math.min(hoursAvail, hoursNeeded);
+  const kwhPossible  = charger * hoursCanCharge;
+  const socReachable = Math.min(100, Math.round(soc + (kwhPossible / battery) * 100));
+
+  // Window to search within (capped at available hours and data length)
+  const windowSize = Math.min(hoursAvail, adj.length - hoursCanCharge);
+
+  const fmt  = d => d.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Amsterdam'});
+  const fmtD = d => d.toLocaleDateString('nl-NL',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/Amsterdam'});
+
+  if (hoursAvail <= 0) {
+    document.getElementById('best-window-container').innerHTML=`
+      <div class="best-window" style="background:var(--red-bg);border-color:var(--red-text);">
+        <div class="best-window-label" style="color:var(--red-text);">No time available</div>
+        <div class="best-window-time" style="color:var(--red-text);font-size:16px;">The ready-by time is at or before the planning start.</div>
+      </div>`;
+    optimalWindow = null;
+    renderTimeline(adj.slice(0,24), planStart);
+    renderRecs(adj, planStart, hoursCanCharge);
+    return;
+  }
+
+  // Find best consecutive window of hoursCanCharge within hoursAvail
+  let bestStart = 0, bestCost = Infinity;
+  const searchLen = Math.max(0, windowSize - hoursCanCharge + 1);
+  for (let s = 0; s < searchLen; s++) {
+    let c = 0;
+    for (let j = 0; j < hoursCanCharge; j++) c += (adj[s+j]?.allIn || 120);
+    if (c < bestCost) { bestCost = c; bestStart = s; }
+  }
+  // If no valid window found (hoursAvail < 1), just use slot 0
+  if (bestCost === Infinity) { bestStart = 0; bestCost = (adj[0]?.allIn||120) * hoursCanCharge; }
+
+  optimalWindow = {start: bestStart, duration: hoursCanCharge};
+
+  const startTime = new Date(planStart.getTime() + bestStart * 3600000);
+  const endTime   = new Date(startTime.getTime() + hoursCanCharge * 3600000);
+  const avgPrice  = bestCost / hoursCanCharge;
+  const estCost   = (avgPrice / 1000) * kwhPossible;
+
+  document.getElementById('m-price').textContent = '€' + (adj[0]?.allIn || 120);
+  document.getElementById('m-low').textContent   = '€' + Math.min(...adj.slice(0, Math.max(1,windowSize)).map(p=>p.allIn));
+  document.getElementById('m-cost').textContent  = '€' + estCost.toFixed(2);
+
+  const dayLabel = startTime.toDateString() === planStart.toDateString() ? 'today' : fmtD(startTime);
+
+  if (partial) {
+    document.getElementById('best-window-container').innerHTML=`
+      <div class="best-window" style="background:var(--amber-bg);border-color:#FAC775;">
+        <div class="best-window-label" style="color:var(--amber-text);">Not enough time to fully charge</div>
+        <div class="best-window-time" style="color:var(--amber-text);">${fmt(startTime)} &ndash; ${fmt(endTime)} <span style="font-size:13px;font-weight:500;opacity:0.75">${dayLabel}</span></div>
+        <div class="best-window-detail" style="color:var(--amber-text);">
+          Only ${hoursAvail}h available, ${hoursNeeded}h needed for full charge.<br>
+          Charging ${hoursCanCharge}h: +${kwhPossible.toFixed(1)} kWh &mdash; battery will reach <strong>${socReachable}%</strong> (from ${soc}%).<br>
+          Est. cost &euro;${estCost.toFixed(2)} &middot; avg &euro;${(avgPrice/1000).toFixed(4)}/kWh
+        </div>
+      </div>`;
+  } else {
+    document.getElementById('best-window-container').innerHTML=`
+      <div class="best-window">
+        <div class="best-window-label">Optimal charging window</div>
+        <div class="best-window-time">${fmt(startTime)} &ndash; ${fmt(endTime)} <span style="font-size:13px;font-weight:500;opacity:0.75">${dayLabel}</span></div>
+        <div class="best-window-detail">${kwhNeeded.toFixed(1)} kWh needed &middot; avg &euro;${(avgPrice/1000).toFixed(4)}/kWh &middot; est. cost &euro;${estCost.toFixed(2)}<br>Ready by ${fmt(endTime)} ${fmtD(endTime)}</div>
+      </div>`;
+  }
+
+  renderTimeline(adj.slice(0, 24), planStart);
+  renderRecs(adj, planStart, hoursCanCharge);
+}
+
+function renderTimeline(prices, planStart) {
+  const tl=document.getElementById('timeline');
   const maxP=Math.max(...prices.map(p=>p.allIn)), minP=Math.min(...prices.map(p=>p.allIn)), range=maxP-minP||1;
   tl.innerHTML='';
   prices.slice(0,24).forEach((p,i)=>{
-    const h=new Date(now.getTime()+i*3600000);
+    const h=new Date(planStart.getTime()+i*3600000);
     const hp=16+((p.allIn-minP)/range)*76;
     const tier=(p.allIn-minP)/range;
     const color=tier<0.33?'#1D9E75':tier<0.66?'#FAC775':'#E24B4A';
@@ -354,11 +443,12 @@ function renderTimeline(prices) {
   document.getElementById('chart-updated').textContent='Updated '+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Amsterdam'});
 }
 
-function renderRecs(prices) {
-  const now=new Date(), list=document.getElementById('rec-list');
-  const minP=Math.min(...prices.slice(0,24).map(p=>p.allIn)), maxP=Math.max(...prices.slice(0,24).map(p=>p.allIn)), range=maxP-minP||1;
+function renderRecs(prices, planStart, hoursCanCharge) {
+  const now=planStart, list=document.getElementById('rec-list');
+  const slice=prices.slice(0,12);
+  const minP=Math.min(...slice.map(p=>p.allIn)), maxP=Math.max(...slice.map(p=>p.allIn)), range=maxP-minP||1;
   list.innerHTML='';
-  prices.slice(0,12).forEach((p,i)=>{
+  slice.forEach((p,i)=>{
     const h=new Date(now.getTime()+i*3600000);
     const lbl=h.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Amsterdam'});
     const isOpt=optimalWindow&&i>=optimalWindow.start&&i<optimalWindow.start+optimalWindow.duration;
@@ -393,6 +483,11 @@ async function loadAll() {
   const [raw,wx]=await Promise.all([fetchEPEX(),fetchWeather()]);
   const now=new Date();
   priceData=raw.map((p,i)=>({hour:i,actualHour:(now.getHours()+i)%24,price:p.price}));
+  // Ensure we have at least 48 entries
+  while (priceData.length < 48) {
+    const last = priceData[priceData.length-1];
+    priceData.push({...last, hour: last.hour+1});
+  }
   weatherData=processWeather(wx);
   renderWeather(weatherData);
   recalc();

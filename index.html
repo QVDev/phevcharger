@@ -398,7 +398,34 @@ async function loadAll() {
   recalc();
 }
 
+const SAVE_IDS = ['car-model','battery','soc','charger','needed-time'];
+
+function saveSettings() {
+  const s = {};
+  SAVE_IDS.forEach(id => { s[id] = document.getElementById(id).value; });
+  try { localStorage.setItem('phev_settings', JSON.stringify(s)); } catch(e) {}
+}
+
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('phev_settings') || '{}');
+    SAVE_IDS.forEach(id => {
+      if (s[id] !== undefined && s[id] !== '') document.getElementById(id).value = s[id];
+    });
+    const carVal = document.getElementById('car-model').value;
+    if (carVal && !carVal.startsWith('custom')) {
+      const [, name] = carVal.split('|');
+      document.getElementById('car-info').textContent = BYD_INFO[name] || '';
+    }
+  } catch(e) {}
+}
+
+SAVE_IDS.forEach(id => {
+  document.getElementById(id).addEventListener('change', saveSettings);
+});
+
 setDefaultDate();
+loadSettings();
 loadAll();
 </script>
 </body>
